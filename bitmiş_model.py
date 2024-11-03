@@ -12,30 +12,31 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 import joblib
 
-# Sayfa Ayarları
+# Sayfa ayarları
 st.set_page_config(page_title="Üretim Yönetim Sistemi", page_icon="🛠️", layout="wide")
 
-# Başlık ve Tanıtım
+# Başlık ve giriş
 st.title("🛠️ Üretim Yönetim Sistemi")
 st.markdown("""
-**Bu platform, üretim planlamanızı optimize etmek ve performans göstergelerinizi analiz etmek için geliştirilmiştir.**  
+**Bu platform, üretim planlamanızı optimize etmek ve performans göstergelerinizi analiz etmek için geliştirilmiştir.**
 Veri analizine dayalı interaktif grafikler ve detaylı görselleştirmelerle üretim sürecinizi iyileştirin.
 """)
 
-# Kenar Çubuğu Ayarları
+# Sidebar ayarları
 st.sidebar.title("⚙️ Ayarlar ve Filtreler")
 selected_operator = st.sidebar.selectbox("Operatör Seçin", ['O_1', 'O_2', 'O_3'])
 selected_machine = st.sidebar.selectbox("Makine Seçin", ['M_1', 'M_2', 'M_3'])
 selected_shift = st.sidebar.selectbox("Vardiya Seçin", ['V_1', 'V_2'])
 selected_theme = st.sidebar.selectbox("Tema Seçin", ['Plotly', 'Seaborn'])
 
-# Model ve Parametreler
+# Model parametreleri
 operators = ['O_1', 'O_2', 'O_3']
 machines = ['M_1', 'M_2', 'M_3']
 shifts = ['V_1', 'V_2']
 products = ['P_1', 'P_2', 'P_3']
 random.seed(42)
 
+# Kurulum süreleri ve hata oranları
 setup_times = {(i, j, k, p): random.randint(10, 20) for i in operators for j in machines for k in shifts for p in products}
 error_rates = {(i, j, k, p): round(random.uniform(0.01, 0.1), 2) for i in operators for j in machines for k in shifts for p in products}
 skill_fit = {(i, j): random.randint(50, 100) for i in operators for j in machines}
@@ -43,15 +44,15 @@ max_error_rate = {'P_1': 0.2, 'P_2': 0.15, 'P_3': 0.25}
 min_skill_score = {'P_1': 60, 'P_2': 70, 'P_3': 65}
 max_work_time = 16 * 60
 
-# Model Oluşturma
+# Model oluşturma
 model = pulp.LpProblem("Operator_Assignment", pulp.LpMinimize)
 x = pulp.LpVariable.dicts("x", (operators, machines, shifts, products), cat="Binary")
 
-# Amaç Fonksiyonu
+# Amaç fonksiyonu
 model += pulp.lpSum((setup_times[i, j, k, p] + error_rates[i, j, k, p] - 0.1 * skill_fit[i, j]) * x[i][j][k][p]
                     for i in operators for j in machines for k in shifts for p in products)
 
-# Kısıtlamalar
+# Kısıtlar
 model += pulp.lpSum(setup_times[i, j, k, p] * x[i][j][k][p] for i in operators for j in machines for k in shifts for p in products) <= 300
 
 for p in products:
@@ -75,14 +76,14 @@ for i in operators:
 for i in operators:
     model += pulp.lpSum(x[i][j][k][p] * setup_times[i, j, k, p] for j in machines for k in shifts for p in products) <= max_work_time
 
-# Modeli Çöz
+# Modeli çöz
 model.solve()
 
-# Çözüm Durumu
+# Çözüm durumu
 solution_status = pulp.LpStatus[model.status]
 st.markdown(f"### Çözüm Durumu: {solution_status}")
 
-# Çözüm Sonuçlarını DataFrame'e Dönüştürme
+# Sonuçları DataFrame olarak dönüştür
 results = []
 for i in operators:
     for j in machines:
@@ -93,16 +94,20 @@ for i in operators:
 
 df_results = pd.DataFrame(results, columns=["Operatör", "Makine", "Vardiya", "Ürün", "Kurulum Süresi", "Hata Oranı", "Yetenek Skoru"])
 
-# Gelişmiş Görselleştirmeler
+# Atama Tablosu
+st.subheader("📋 Atama Tablosu")
+st.dataframe(df_results)
+
+# İleri Düzey Görselleştirmeler
 if not df_results.empty:
     st.subheader("📊 Atama Sonuçları ve Analizler")
 
-    # Renkli Kartlarla Özet İstatistikler
+    # Özet İstatistikler
     col1, col2 = st.columns(2)
     col1.metric("Toplam Kurulum Süresi", f"{df_results['Kurulum Süresi'].sum()} dk")
     col2.metric("Ortalama Hata Oranı", f"{df_results['Hata Oranı'].mean():.2%}")
 
-    # Çubuk Grafik: Makineye Göre Kurulum Süresi (Gelişmiş)
+    # Makineye Göre Kurulum Süresi
     fig1 = px.bar(df_results, x="Makine", y="Kurulum Süresi", color="Ürün",
                   title="Makineye Göre Kurulum Süresi",
                   labels={'Kurulum Süresi': 'Kurulum Süresi (dk)', 'Makine': 'Makine Adı'},
@@ -110,7 +115,7 @@ if not df_results.empty:
     fig1.update_traces(marker=dict(line=dict(width=1, color='DarkSlateGrey')))
     st.plotly_chart(fig1, use_container_width=True)
 
-    # Vardiyalara Göre Hata Oranı Çizgi Grafiği (Altair ile Filtrelenebilir)
+    # Vardiyalara Göre Hata Oranı
     fig2 = alt.Chart(df_results).mark_line(point=True).encode(
         x='Vardiya',
         y='Hata Oranı',
@@ -122,7 +127,7 @@ if not df_results.empty:
     ).interactive()
     st.altair_chart(fig2, use_container_width=True)
 
-    # Kurulum Süresi ve Yetenek Skoru Dağılımı (Plotly ile Interaktif Dağılım Grafiği)
+    # Kurulum Süresi ve Yetenek Skoru Dağılımı
     fig3 = px.scatter(df_results, x="Kurulum Süresi", y="Yetenek Skoru", color="Makine",
                       title="Kurulum Süresi ve Yetenek Skoru Dağılımı",
                       size="Hata Oranı", hover_data=['Operatör', 'Vardiya', 'Ürün'],
@@ -143,17 +148,17 @@ if not df_results.empty:
     fig4.update_layout(title="Korelasyon Isı Haritası", template=selected_theme.lower())
     st.plotly_chart(fig4, use_container_width=True)
 
-    # Gelişmiş Regresyon Modelleri
+    # Regresyon Modelleri
     st.subheader("📊 Gelişmiş Regresyon Modelleri")
 
-    # Verileri Hazırlama
+    # Regresyon için veri hazırlama
     X = df_results[['Kurulum Süresi', 'Yetenek Skoru']].values
     y = df_results['Hata Oranı'].values
 
-    # Eğitim ve Test Setlerine Ayırma
+    # Train-Test Bölme
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Basit Lineer Regresyon
+    # Lineer Regresyon
     linear_model = LinearRegression()
     linear_model.fit(X_train, y_train)
     y_pred_linear = linear_model.predict(X_test)
@@ -163,8 +168,8 @@ if not df_results.empty:
     rf_model.fit(X_train, y_train)
     y_pred_rf = rf_model.predict(X_test)
 
-    # Sonuçları Gösterme
-    st.write("Basit Lineer Regresyon Modeli Performansı:")
+    # Model Performans Gösterimi
+    st.write("Lineer Regresyon Modeli Performansı:")
     st.write(f"Ortalama Kare Hatası: {mean_squared_error(y_test, y_pred_linear):.4f}")
     st.write(f"R² Skoru: {r2_score(y_test, y_pred_linear):.4f}")
 
@@ -172,7 +177,7 @@ if not df_results.empty:
     st.write(f"Ortalama Kare Hatası: {mean_squared_error(y_test, y_pred_rf):.4f}")
     st.write(f"R² Skoru: {r2_score(y_test, y_pred_rf):.4f}")
 
-    # Tahminleri Gösterme
+    # Tahmin Sonuçları
     st.write("Tahmin Sonuçları:")
     comparison_df = pd.DataFrame({
         'Gerçek Değerler': y_test,
@@ -181,7 +186,7 @@ if not df_results.empty:
     })
     st.write(comparison_df)
 
-    # Modeli Kaydetme
+    # Modelleri Kaydet
     joblib.dump(linear_model, 'linear_regression_model.pkl')
     joblib.dump(rf_model, 'random_forest_model.pkl')
     st.success("Modeller kaydedildi: 'linear_regression_model.pkl' ve 'random_forest_model.pkl'")
