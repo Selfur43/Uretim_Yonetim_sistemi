@@ -1,6 +1,6 @@
 pandas 
 pulp
-streamlit as st
+streamlit
 plotly.express
 plotly.graph_objects 
 altair 
