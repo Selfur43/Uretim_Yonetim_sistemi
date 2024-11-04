@@ -44,6 +44,7 @@ max_error_rate = {'P_1': 0.2, 'P_2': 0.15, 'P_3': 0.25}
 min_skill_score = {'P_1': 60, 'P_2': 70, 'P_3': 65}
 max_work_time = 8 * 60
 max_daily_work_minutes = 480 
+max_weekly_days = 6
 
 # Model oluşturma
 model = pulp.LpProblem("Operator_Assignment", pulp.LpMinimize)
