@@ -52,24 +52,25 @@ x = pulp.LpVariable.dicts("x", (operators, machines, shifts, products), cat="Bin
 model += pulp.lpSum((setup_times[i, j, k, p] + error_rates[i, j, k, p] - 0.1 * skill_fit[i, j]) * x[i][j][k][p]
                     for i in operators for j in machines for k in shifts for p in products)
 
-# Toplam kurulum süresi kısıtı
+# Kısıtlar
+# 1. Toplam kurulum süresi kısıtı
 model += pulp.lpSum(setup_times[i, j, k, p] * x[i][j][k][p] for i in operators for j in machines for k in shifts for p in products) <= 300
 
-# Ürün başına hata oranı kısıtı
+# 2. Ürün başına hata oranı kısıtı
 for p in products:
     model += pulp.lpSum(error_rates[i, j, k, p] * x[i][j][k][p] for i in operators for j in machines for k in shifts) <= max_error_rate[p]
 
-# Makine ve vardiya kapsama kısıtı
+# 3. Makine ve vardiya kapsama kısıtı
 for j in machines:
     for k in shifts:
         model += pulp.lpSum(x[i][j][k][p] for i in operators for p in products) >= 1
 
-# Operatör başına tek atama kısıtı
+# 4. Operatör başına tek atama kısıtı
 for i in operators:
     for k in shifts:
         model += pulp.lpSum(x[i][j][k][p] for j in machines for p in products) <= 1
 
-# Minimum yetenek puanı kısıtı
+# 5. Minimum yetenek puanı kısıtı
 for i in operators:
     for j in machines:
         for k in shifts:
@@ -77,13 +78,25 @@ for i in operators:
                 if skill_fit[i, j] < min_skill_score[p]:
                     model += x[i][j][k][p] == 0
 
-# Maksimum çalışma süresi kısıtı
+# 6. Günlük çalışma süresi sınırı (günlük maksimum 8 saat çalışma)
 for i in operators:
-    model += pulp.lpSum(x[i][j][k][p] * setup_times[i, j, k, p] for j in machines for k in shifts for p in products) <= max_work_time
+    for k in shifts:
+        model += pulp.lpSum(x[i][j][k][p] * setup_times[i, j, k, p] for j in machines for p in products) <= max_daily_work_minutes
 
-# Her ürüne en az bir atama kısıtı (Yeni kısıt)
-for p in products:
-    model += pulp.lpSum(x[i][j][k][p] for i in operators for j in machines for k in shifts) >= 1
+# 7. Haftalık çalışma günü sınırı (her operatör haftada en fazla 6 gün çalışabilir)
+for i in operators:
+    model += pulp.lpSum(x[i][j][k][p] for j in machines for k in shifts for p in products) <= max_weekly_days
+
+# 8. Günlük tek vardiya kısıtı (her operatör gün içinde sadece bir vardiyada çalışabilir)
+# Her operatör, herhangi bir gün sadece bir vardiyada görev alabilir.
+for i in operators:
+    for k in shifts:
+        model += pulp.lpSum(x[i][j][k][p] for j in machines for p in products) <= 1
+
+# 9. Makine başına tek operatör kısıtı (aynı vardiyada bir makine yalnızca bir operatör tarafından kullanılabilir)
+for j in machines:
+    for k in shifts:
+        model += pulp.lpSum(x[i][j][k][p] for i in operators for p in products) <= 1
 # Modeli çöz
 model.solve()
 
