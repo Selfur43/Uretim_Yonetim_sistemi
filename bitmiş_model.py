@@ -6,6 +6,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import altair as alt
 import numpy as np
+from fpdf import FPDF  # Make sure to import FPDF for PDF generation
+import seaborn as sns  # Import seaborn for correlation heatmap
+import matplotlib.pyplot as plt  # Import matplotlib for the heatmap plot
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
@@ -17,10 +20,8 @@ st.set_page_config(page_title="Üretim Yönetim Sistemi", page_icon="🛠️", l
 
 # Başlık ve giriş
 st.title("🛠️ Üretim Yönetim Sistemi")
-st.markdown("""
-**Bu platform, üretim planlamanızı optimize etmek ve performans göstergelerinizi analiz etmek için geliştirilmiştir.**
-Veri analizine dayalı interaktif grafikler ve detaylı görselleştirmelerle üretim sürecinizi iyileştirin.
-""")
+st.markdown("""**Bu platform, üretim planlamanızı optimize etmek ve performans göstergelerinizi analiz etmek için geliştirilmiştir.**
+Veri analizine dayalı interaktif grafikler ve detaylı görselleştirmelerle üretim sürecinizi iyileştirin.""")
 
 # Sidebar ayarları
 st.sidebar.title("⚙️ Ayarlar ve Filtreler")
@@ -34,17 +35,24 @@ operators = ['O_1', 'O_2', 'O_3']
 machines = ['M_1', 'M_2', 'M_3']
 shifts = ['V_1', 'V_2']
 products = ['P_1', 'P_2', 'P_3']
+tasks = ['T_1', 'T_2', 'T_3']  # Define tasks
 random.seed(42)
 
 # Kurulum süreleri ve hata oranları
-setup_times = {(i, j, k, p): random.randint(10, 20) for i in operators for j in machines for k in shifts for p in products}
-error_rates = {(i, j, k, p): round(random.uniform(0.01, 0.1), 2) for i in operators for j in machines for k in shifts for p in products}
+setup_times = {(i, j, k, p): random.randint(1, 20) for i in operators for j in machines for k in shifts for p in products}
+error_rates = {(i, j, k, p): round(random.uniform(0.01, 0.26), 2) for i in operators for j in machines for k in shifts for p in products}
 skill_fit = {(i, j): random.randint(50, 100) for i in operators for j in machines}
 max_error_rate = {'P_1': 0.2, 'P_2': 0.15, 'P_3': 0.25}
 min_skill_score = {'P_1': 60, 'P_2': 70, 'P_3': 65}
-max_work_time = 8 * 60
-max_daily_work_minutes = 480 
-max_weekly_days = 6
+max_daily_work_minutes = 1440  # Günlük maksimum çalışma süresi (dakika)
+max_weekly_days = 6  # Haftalık maksimum çalışma günü sayısı
+rest_time = 30  # Dinlenme süresi (dakika)
+overtime_limit = 90  # Maksimum fazla mesai süresi (dakika)
+task_durations = {
+    'T_1': 30,
+    'T_2': 45,
+    'T_3': 25
+}
 
 # Model oluşturma
 model = pulp.LpProblem("Operator_Assignment", pulp.LpMinimize)
@@ -56,7 +64,7 @@ model += pulp.lpSum((setup_times[i, j, k, p] + error_rates[i, j, k, p] - 0.1 * s
 
 # Kısıtlar
 # 1. Toplam kurulum süresi kısıtı
-model += pulp.lpSum(setup_times[i, j, k, p] * x[i][j][k][p] for i in operators for j in machines for k in shifts for p in products) <= 300
+model += pulp.lpSum(setup_times[i, j, k, p] * x[i][j][k][p] for i in operators for j in machines for k in shifts for p in products) <= 60
 
 # 2. Ürün başına hata oranı kısıtı
 for p in products:
@@ -80,17 +88,15 @@ for i in operators:
                 if skill_fit[i, j] < min_skill_score[p]:
                     model += x[i][j][k][p] == 0
 
-# 6. Günlük çalışma süresi sınırı (günlük maksimum 8 saat çalışma)
+# 6. Günlük çalışma süresi kısıtı (her operatör için)
 for i in operators:
-    for k in shifts:
-        model += pulp.lpSum(x[i][j][k][p] * setup_times[i, j, k, p] for j in machines for p in products) <= max_daily_work_minutes
+    model += pulp.lpSum(task_durations[task] * x[i][j][k][p]
+                         for j in machines for k in shifts for p in products for task in tasks) <= max_daily_work_minutes - rest_time
 
-# 7. Haftalık çalışma günü sınırı (her operatör haftada en fazla 6 gün çalışabilir)
-for i in operators:
-    model += pulp.lpSum(x[i][j][k][p] for j in machines for k in shifts for p in products) <= max_weekly_days
+# 7. Haftalık çalışma günü sınırı
+model += pulp.lpSum(x[i][j][k][p] for i in operators for j in machines for k in shifts for p in products) <= max_weekly_days
 
 # 8. Günlük tek vardiya kısıtı (her operatör gün içinde sadece bir vardiyada çalışabilir)
-# Her operatör, herhangi bir gün sadece bir vardiyada görev alabilir.
 for i in operators:
     for k in shifts:
         model += pulp.lpSum(x[i][j][k][p] for j in machines for p in products) <= 1
@@ -99,6 +105,15 @@ for i in operators:
 for j in machines:
     for k in shifts:
         model += pulp.lpSum(x[i][j][k][p] for i in operators for p in products) <= 1
+
+# 10. Fazla mesai kısıtlaması
+model += pulp.lpSum(task_durations[task] * x[i][j][k][p]
+                     for i in operators for j in machines for k in shifts for p in products for task in tasks) <= max_daily_work_minutes + overtime_limit
+
+# 11. Dinlenme süreleri kısıtlaması
+model += pulp.lpSum(task_durations[task] * x[i][j][k][p]
+                     for i in operators for j in machines for k in shifts for p in products for task in tasks) + rest_time <= max_daily_work_minutes
+
 # Modeli çöz
 model.solve()
 
@@ -131,90 +146,39 @@ if not df_results.empty:
     col2.metric("Ortalama Hata Oranı", f"{df_results['Hata Oranı'].mean():.2%}")
 
     # Makineye Göre Kurulum Süresi
-    fig1 = px.bar(df_results, x="Makine", y="Kurulum Süresi", color="Ürün",
-                  title="Makineye Göre Kurulum Süresi",
-                  labels={'Kurulum Süresi': 'Kurulum Süresi (dk)', 'Makine': 'Makine Adı'},
-                  template=selected_theme.lower(), hover_data=['Operatör', 'Yetenek Skoru'])
-    fig1.update_traces(marker=dict(line=dict(width=1, color='DarkSlateGrey')))
-    st.plotly_chart(fig1, use_container_width=True)
+    fig1 = px.bar(df_results, x="Makine", y="Kurulum Süresi", color="Operatör", title="Makineye Göre Kurulum Süresi", barmode='group')
+    st.plotly_chart(fig1)
 
-    # Vardiyalara Göre Hata Oranı
-    fig2 = alt.Chart(df_results).mark_line(point=True).encode(
-        x='Vardiya',
-        y='Hata Oranı',
-        color='Makine',
-        tooltip=['Makine', 'Ürün', 'Operatör', 'Yetenek Skoru', 'Kurulum Süresi']
-    ).properties(
-        title="Vardiyalara Göre Hata Oranı",
-        width=700
-    ).interactive()
-    st.altair_chart(fig2, use_container_width=True)
+    # Hata Oranı Analizi
+    fig2 = go.Figure()
+    for operator in df_results["Operatör"].unique():
+        filtered_df = df_results[df_results["Operatör"] == operator]
+        fig2.add_trace(go.Scatter(x=filtered_df["Ürün"], y=filtered_df["Hata Oranı"], mode='lines+markers', name=operator))
+    fig2.update_layout(title="Operatör Bazında Hata Oranı Analizi", xaxis_title="Ürün", yaxis_title="Hata Oranı")
+    st.plotly_chart(fig2)
 
-    # Kurulum Süresi ve Yetenek Skoru Dağılımı
-    fig3 = px.scatter(df_results, x="Kurulum Süresi", y="Yetenek Skoru", color="Makine",
-                      title="Kurulum Süresi ve Yetenek Skoru Dağılımı",
-                      size="Hata Oranı", hover_data=['Operatör', 'Vardiya', 'Ürün'],
-                      template=selected_theme.lower())
-    st.plotly_chart(fig3, use_container_width=True)
+    # Yetenek Skoru Dağılımı
+    sns.set(style="whitegrid")
+    plt.figure(figsize=(10, 6))
+    sns.boxplot(x="Yetenek Skoru", data=df_results)
+    plt.title("Yetenek Skoru Dağılımı")
+    plt.xlabel("Yetenek Skoru")
+    plt.tight_layout()
+    st.pyplot(plt)
 
-    # Korelasyon Isı Haritası
-    st.subheader("📈 Korelasyon Isı Haritası")
-    numeric_cols = df_results.select_dtypes(include=['float64', 'int64']).columns
-    corr_matrix = df_results[numeric_cols].corr()
+# PDF raporu oluşturma
+if st.button("PDF Raporu Oluştur"):
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt="Üretim Yönetim Sistemi Raporu", ln=True, align='C')
 
-    fig4 = go.Figure(data=go.Heatmap(
-        z=corr_matrix.values,
-        x=corr_matrix.columns,
-        y=corr_matrix.columns,
-        colorscale="Viridis",
-        hoverongaps=False))
-    fig4.update_layout(title="Korelasyon Isı Haritası", template=selected_theme.lower())
-    st.plotly_chart(fig4, use_container_width=True)
+    # Raporun detayları
+    for index, row in df_results.iterrows():
+        pdf.cell(0, 10, f"Operatör: {row['Operatör']}, Makine: {row['Makine']}, Vardiya: {row['Vardiya']}, Ürün: {row['Ürün']}, Kurulum Süresi: {row['Kurulum Süresi']} dk, Hata Oranı: {row['Hata Oranı']:.2%}, Yetenek Skoru: {row['Yetenek Skoru']}", ln=True)
 
-    # Regresyon Modelleri
-    st.subheader("📊 Gelişmiş Regresyon Modelleri")
+    pdf_file_path = "rapor.pdf"
+    pdf.output(pdf_file_path)
 
-    # Regresyon için veri hazırlama
-    X = df_results[['Kurulum Süresi', 'Yetenek Skoru']].values
-    y = df_results['Hata Oranı'].values
-
-    # Train-Test Bölme
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    # Lineer Regresyon
-    linear_model = LinearRegression()
-    linear_model.fit(X_train, y_train)
-    y_pred_linear = linear_model.predict(X_test)
-
-    # Rastgele Orman Regresyonu
-    rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
-    rf_model.fit(X_train, y_train)
-    y_pred_rf = rf_model.predict(X_test)
-
-    # Model Performans Gösterimi
-    st.write("Lineer Regresyon Modeli Performansı:")
-    st.write(f"Ortalama Kare Hatası: {mean_squared_error(y_test, y_pred_linear):.4f}")
-    st.write(f"R² Skoru: {r2_score(y_test, y_pred_linear):.4f}")
-
-    st.write("Rastgele Orman Regresyon Modeli Performansı:")
-    st.write(f"Ortalama Kare Hatası: {mean_squared_error(y_test, y_pred_rf):.4f}")
-    st.write(f"R² Skoru: {r2_score(y_test, y_pred_rf):.4f}")
-
-    # Tahmin Sonuçları
-    st.write("Tahmin Sonuçları:")
-    comparison_df = pd.DataFrame({
-        'Gerçek Değerler': y_test,
-        'Basit Regresyon Tahminleri': y_pred_linear,
-        'Rastgele Orman Tahminleri': y_pred_rf
-    })
-    st.write(comparison_df)
-
-    # Modelleri Kaydet
-    joblib.dump(linear_model, 'linear_regression_model.pkl')
-    joblib.dump(rf_model, 'random_forest_model.pkl')
-    st.success("Modeller kaydedildi: 'linear_regression_model.pkl' ve 'random_forest_model.pkl'")
-
-# Sonuçları Kaydetme
-if st.button("Sonuçları PDF Olarak İndir"):
-    df_results.to_csv("sonuclar.csv", index=False)
-    st.success("Sonuçlar CSV dosyası olarak kaydedildi.")
+    st.success(f"PDF raporu oluşturuldu! [İndir]({pdf_file_path})")
