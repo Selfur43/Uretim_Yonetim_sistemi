@@ -6,7 +6,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import altair as alt
 import numpy as np
-from fpdf import FPDF  # Make sure to import FPDF for PDF generation
 import seaborn as sns  # Import seaborn for correlation heatmap
 import matplotlib.pyplot as plt  # Import matplotlib for the heatmap plot
 from sklearn.linear_model import LinearRegression
@@ -166,19 +165,3 @@ if not df_results.empty:
     plt.tight_layout()
     st.pyplot(plt)
 
-# PDF raporu oluşturma
-if st.button("PDF Raporu Oluştur"):
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="Üretim Yönetim Sistemi Raporu", ln=True, align='C')
-
-    # Raporun detayları
-    for index, row in df_results.iterrows():
-        pdf.cell(0, 10, f"Operatör: {row['Operatör']}, Makine: {row['Makine']}, Vardiya: {row['Vardiya']}, Ürün: {row['Ürün']}, Kurulum Süresi: {row['Kurulum Süresi']} dk, Hata Oranı: {row['Hata Oranı']:.2%}, Yetenek Skoru: {row['Yetenek Skoru']}", ln=True)
-
-    pdf_file_path = "rapor.pdf"
-    pdf.output(pdf_file_path)
-
-    st.success(f"PDF raporu oluşturuldu! [İndir]({pdf_file_path})")
