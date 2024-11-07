@@ -3,81 +3,74 @@ import random
 import pulp
 import streamlit as st
 
-# Seed for reproducibility
+# Rastgelelik için sabit
 random.seed(42)
 
-# Streamlit page settings
-st.set_page_config(page_title="Production Management System", page_icon="🛠️", layout="wide")
+# Streamlit sayfa ayarları
+st.set_page_config(page_title="Gelişmiş Kaynak Bölümü Planlama", page_icon="🔧", layout="wide")
 
-# Title and introduction
-st.title("🛠️ Production Management System")
-st.markdown("**Optimize your production planning and analyze performance indicators on this platform.**")
+# Başlık ve Giriş
+st.title("🔧 Gelişmiş Kaynak Bölümü Planlama - Operatör Atama Problemi")
+st.markdown("**Operatörlerin deneyim seviyesine göre hata oranı ve ayar süresini optimize edin.**")
 
-# Sidebar settings
-st.sidebar.title("⚙️ Settings and Filters")
-selected_operator = st.sidebar.selectbox("Select Operator", ['O_1', 'O_2', 'O_3'])
-selected_machine = st.sidebar.selectbox("Select Machine", ['M_1', 'M_2', 'M_3'])
-selected_shift = st.sidebar.selectbox("Select Shift", ['V_1', 'V_2'])
-selected_theme = st.sidebar.selectbox("Select Theme", ['Plotly', 'Seaborn'])
+# Sidebar ayarları
+st.sidebar.title("⚙️ Ayarlar ve Filtreler")
+selected_operator = st.sidebar.selectbox("Operatör Seç", ['O_1', 'O_2', 'O_3', 'O_4', 'O_5'])
+selected_machine = st.sidebar.selectbox("Makine Seç", ['Kaynak_M_1', 'Kaynak_M_2', 'Kaynak_M_3'])
+selected_shift = st.sidebar.selectbox("Vardiya Seç", ['Sabah', 'Akşam'])
+selected_theme = st.sidebar.selectbox("Tema Seç", ['Plotly', 'Seaborn'])
 
-# Model parameters
-operators = ['O_1', 'O_2', 'O_3']
-machines = ['M_1', 'M_2', 'M_3']
-shifts = ['V_1', 'V_2']
-products = ['P_1', 'P_2', 'P_3']
-workdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-hours = list(range(1, 11))  # 10-hour workday
+# Model Parametreleri
+operators = ['O_1', 'O_2', 'O_3', 'O_4', 'O_5']
+machines = ['Kaynak_M_1', 'Kaynak_M_2', 'Kaynak_M_3']
+shifts = ['Sabah', 'Akşam']
+products = ['Metal_P_1', 'Metal_P_2', 'Metal_P_3']
+workdays = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma']
+hours = list(range(1, 9))  # Günde 8 saat çalışma
 
-# Generate parameters
-setup_times = {(i, j, k, p, d, h): random.randint(1, 20) for i in operators for j in machines for k in shifts for p in products for d in workdays for h in hours}
-error_rates = {(i, j, k, p, d, h): round(random.uniform(0.01, 0.26), 2) for i in operators for j in machines for k in shifts for p in products for d in workdays for h in hours}
-skill_fit = {(i, j): random.randint(50, 100) for i in operators for j in machines}
-max_error_rates = {'P_1': 0.2, 'P_2': 0.15, 'P_3': 0.25}
-min_skill_score = {'P_1': 60, 'P_2': 70, 'P_3': 65}
-max_daily_work_minutes = 10 * 60  # Maximum daily working time in minutes (10 hours * 60 minutes)
-max_weekly_workdays = 5
-rest_time = 30
-overtime_limit = 90
+# Parametreleri oluştur
+setup_times = {(i, j, k, p, d, h): random.randint(5, 20) for i in operators for j in machines for k in shifts for p in products for d in workdays for h in hours}
+error_rates = {(i, j, k, p, d, h): round(random.uniform(0.01, 0.12), 2) for i in operators for j in machines for k in shifts for p in products for d in workdays for h in hours}
+skill_fit = {(i, j): random.randint(60, 100) for i in operators for j in machines}
+learning_factor = 0.9  # Öğrenme eğrisi katsayısı
+max_error_rates = {'Metal_P_1': 0.08, 'Metal_P_2': 0.05, 'Metal_P_3': 0.10}
+min_skill_score = {'Metal_P_1': 60, 'Metal_P_2': 75, 'Metal_P_3': 70}
+max_daily_work_minutes = 8 * 60  # Günde maksimum 8 saat (480 dakika)
+weekly_work_limit = 45 * 60  # Haftalık çalışma limiti 45 saat (2700 dakika)
+overtime_limit = 60  # Maksimum ek mesai 60 dakika ile sınırlı
+daily_break_minutes = 30  # Günlük mola süresi 30 dakika
 
-# Define decision variable for each operator, machine, shift, product, day, and hour
+# Karar değişkeni (her operatör, makine, vardiya, ürün, gün ve saat için)
 x = pulp.LpVariable.dicts("x", (operators, machines, shifts, products, workdays, hours), cat="Binary")
 
-# Initialize the optimization model as a minimization problem
-model = pulp.LpProblem("Operator_Assignment", pulp.LpMinimize)
+# Optimizasyon modelini başlat (minimizasyon problemi)
+model = pulp.LpProblem("Deneyime_Gore_Operator_Atama", pulp.LpMinimize)
 
-# Objective function: minimize setup times and error rates
+# Amaç fonksiyonu: Toplam kurulum süresi, hata oranları ve ek mesai maliyetlerini minimize et
+overtime_penalty = 2  # Ek mesai maliyeti artırıcı katsayı
 model += pulp.lpSum(
-    (setup_times[i, j, k, p, d, h] + error_rates[i, j, k, p, d, h] * max_daily_work_minutes - 0.05 * skill_fit[i, j] * max_daily_work_minutes) * x[i][j][k][p][d][h]
+    ((setup_times[i, j, k, p, d, h] * learning_factor ** (1 / skill_fit[i, j]) + 
+     error_rates[i, j, k, p, d, h] * max_daily_work_minutes - 0.05 * skill_fit[i, j] * max_daily_work_minutes) +
+     overtime_penalty * (1 if setup_times[i, j, k, p, d, h] > max_daily_work_minutes else 0))
+    * x[i][j][k][p][d][h] 
     for i in operators for j in machines for k in shifts for p in products for d in workdays for h in hours
 )
 
-# Constraints
+# Kısıtlar
 
-# 1. Total setup time per shift and day
+# 1. Günlük çalışma süresi ve mola dahilinde çalışma
 for i in operators:
     for k in shifts:
         for d in workdays:
-            model += pulp.lpSum(setup_times[i, j, k, p, d, h] * x[i][j][k][p][d][h] for j in machines for p in products for h in hours) <= max_daily_work_minutes - rest_time
+            model += pulp.lpSum(setup_times[i, j, k, p, d, h] * x[i][j][k][p][d][h] for j in machines for p in products for h in hours) <= max_daily_work_minutes - daily_break_minutes
 
-# 2. Average error rate per machine, shift, and day
+# 2. Ürün bazında hata oranı sınırı
 for j in machines:
     for k in shifts:
         for d in workdays:
             model += pulp.lpSum(error_rates[i, j, k, p, d, h] * x[i][j][k][p][d][h] for i in operators for p in products for h in hours) <= sum(max_error_rates[p] for p in products) / len(products)
 
-# 3. At least one operator per machine, shift, and day
-for j in machines:
-    for k in shifts:
-        for d in workdays:
-            model += pulp.lpSum(x[i][j][k][p][d][h] for i in operators for p in products for h in hours) >= 1
-
-# 4. Single assignment per operator per shift and day
-for i in operators:
-    for k in shifts:
-        for d in workdays:
-            model += pulp.lpSum(x[i][j][k][p][d][h] for j in machines for p in products for h in hours) <= 1
-
-# 5. Skill score threshold constraint
+# 3. Yetenek eşiği ve gelişim süreci
 for i in operators:
     for j in machines:
         for k in shifts:
@@ -87,33 +80,31 @@ for i in operators:
                         if skill_fit[i, j] < min_skill_score[p]:
                             model += x[i][j][k][p][d][h] == 0
 
-# 6. Weekly working day limit for each operator
+# 4. Haftalık çalışma limiti (her operatör için en fazla 45 saat)
 for i in operators:
-    model += pulp.lpSum(x[i][j][k][p][d][h] for j in machines for k in shifts for p in products for d in workdays for h in hours) <= max_weekly_workdays * 10
+    model += pulp.lpSum(setup_times[i, j, k, p, d, h] * x[i][j][k][p][d][h] for j in machines for k in shifts for p in products for d in workdays for h in hours) <= weekly_work_limit
 
-# 7. Daily working hours and single shift constraint for each operator
-for i in operators:
-    for d in workdays:
-        model += pulp.lpSum(x[i][j][k][p][d][h] for j in machines for k in shifts for p in products for h in hours) <= 10
-
-# 8. Ensure no overlap in shifts for any operator.
+# 5. Vardiya çakışma kısıtlaması
 for i in operators:
     for d in workdays:
-        model += pulp.lpSum(x[i][j][k][p][d][h] for j in machines for k in shifts for p in products for h in hours) <= 10
+        model += pulp.lpSum(x[i][j][k][p][d][h] for j in machines for k in shifts for p in products for h in hours) <= 8
 
-# 9. Daily overtime constraint for each operator
+# 6. Rotasyon ve iş çeşitlendirme
 for i in operators:
     for d in workdays:
-        model += pulp.lpSum(setup_times[i, j, k, p, d, h] * x[i][j][k][p][d][h] for j in machines for k in shifts for p in products for h in hours) <= max_daily_work_minutes + overtime_limit
+        for j in machines:
+            for p in products:
+                # Her gün aynı makine ve ürün için aynı operatör 4 saatten fazla çalışmasın
+                model += pulp.lpSum(x[i][j][k][p][d][h] for k in shifts for h in hours) <= 4
 
-# Solve the model
+# Modeli çöz
 model.solve()
 
-# Solution status
+# Çözüm durumu
 solution_status = pulp.LpStatus[model.status]
-st.markdown(f"### Solution Status: {solution_status}")
+st.markdown(f"### Çözüm Durumu: {solution_status}")
 
-# Convert results to DataFrame
+# Sonuçları DataFrame'e çevir
 results = []
 if solution_status == "Optimal":
     for i in operators:
@@ -124,14 +115,14 @@ if solution_status == "Optimal":
                         for h in hours:
                             if x[i][j][k][p][d][h].varValue == 1:
                                 results.append([i, j, k, p, d, h, setup_times[(i, j, k, p, d, h)], error_rates[(i, j, k, p, d, h)], skill_fit[(i, j)]])
-    df_results = pd.DataFrame(results, columns=["Operator", "Machine", "Shift", "Product", "Day", "Hour", "Setup Time (min)", "Error Rate (%)", "Skill Score"])
+    df_results = pd.DataFrame(results, columns=["Operatör", "Makine", "Vardiya", "Ürün", "Gün", "Saat", "Kurulum Süresi (dk)", "Hata Oranı (%)", "Yetenek Skoru"])
 else:
-    st.warning("No optimal solution found.")
+    st.warning("Optimal çözüm bulunamadı.")
     df_results = pd.DataFrame()
 
-# Display assignment table
+# Atama Tablosunu Göster
 if not df_results.empty:
-    st.subheader("📋 Assignment Table")
+    st.subheader("📋 Atama Tablosu")
     st.dataframe(df_results)
 else:
-    st.write("No data available for visualizations.")
+    st.write("Veri bulunamadı.")
